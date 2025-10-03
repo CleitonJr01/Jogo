@@ -1,0 +1,263 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Desafio do Labirinto Neon</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Press Start 2P', cursive;
+            overflow: hidden;
+            background-color: #1a1a2e;
+        }
+        .container {
+            width: 100%;
+            height: 100vh;
+        }
+        .neon-shadow {
+            box-shadow: 0 0 5px #00f, 0 0 10px #00f, 0 0 20px #00f, 0 0 40px #00f, 0 0 80px #00f;
+        }
+        .text-shadow {
+            text-shadow: 0 0 5px #fff, 0 0 10px #fff, 0 0 15px #00f, 0 0 20px #00f, 0 0 25px #00f;
+        }
+        .btn-neon {
+            border: 2px solid #0fa;
+            color: #0fa;
+            text-shadow: 0 0 5px #0fa;
+            box-shadow: 0 0 5px #0fa, inset 0 0 5px #0fa;
+            transition: all 0.3s ease;
+        }
+        .btn-neon:hover {
+            background-color: #0fa;
+            color: #1a1a2e;
+            box-shadow: 0 0 10px #0fa, 0 0 20px #0fa, 0 0 40px #0fa;
+        }
+        .screen {
+            background-color: rgba(26, 26, 46, 0.85);
+            backdrop-filter: blur(5px);
+        }
+    </style>
+</head>
+<body class="text-white">
+
+    <div id="container" class="container flex items-center justify-center p-4">
+        <!-- Tela Inicial -->
+        <div id="start-screen" class="screen w-full max-w-md p-8 rounded-lg border-2 border-blue-500 neon-shadow text-center">
+            <h1 class="text-4xl font-bold mb-6 text-shadow">Labirinto Neon</h1>
+            <button id="start-button" class="btn-neon text-xl font-bold py-3 px-6 rounded">Jogar</button>
+        </div>
+
+        <!-- Tela do Jogo -->
+        <div id="game-screen" class="hidden w-full h-full flex flex-col items-center justify-center">
+            <div class="flex justify-between w-full max-w-4xl mb-2">
+                <div class="text-lg">Tempo Restante: <span id="timer" class="text-cyan-300">30.00</span>s</div>
+            </div>
+            <canvas id="gameCanvas" class="border-2 border-blue-500 rounded-lg neon-shadow"></canvas>
+        </div>
+
+        <!-- Tela Final -->
+        <div id="end-screen" class="hidden screen w-full max-w-xl p-8 rounded-lg border-2 border-blue-500 neon-shadow text-center">
+            <h2 id="end-message" class="text-3xl font-bold mb-4 text-shadow"></h2>
+            <button id="play-again-button" class="btn-neon text-xl font-bold py-3 px-6 rounded mt-8">Jogar Novamente</button>
+        </div>
+    </div>
+
+    <script>
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+
+        const screens = {
+            start: document.getElementById('start-screen'),
+            game: document.getElementById('game-screen'),
+            end: document.getElementById('end-screen')
+        };
+
+        const startButton = document.getElementById('start-button');
+        const playAgainButton = document.getElementById('play-again-button');
+        const timerDisplay = document.getElementById('timer');
+        const endMessage = document.getElementById('end-message');
+
+        let player, maze, traps, startPos, endPos;
+        let keys = {};
+        let timerInterval;
+        let timeRemaining = 30;
+        let animationFrameId;
+
+        const TILE_SIZE = 25;
+        const MAZE_WIDTH = 20; // Atualizado para 20 colunas
+        const MAZE_HEIGHT = 13; // Atualizado para 13 linhas
+
+        // Novo layout do labirinto 20x13
+        const mazeLayout = [
+"####################",
+"#S   #             #",
+"# ## # ########### #",
+"#    #       #   T #",
+"#### ##### # # ### #",
+"#        # # #   # #",
+"# ###### # # ### # #",
+"#      # # #     # #",
+"###### # # ##### # #",
+"#      # #     # # #",
+"# ###### ##### ### #",
+"#      #       #E  #",
+"####################",
+
+
+        ];
+
+        function initGameElements() {
+            maze = [];
+            traps = [];
+            for (let y = 0; y < mazeLayout.length; y++) {
+                for (let x = 0; x < mazeLayout[y].length; x++) {
+                    const char = mazeLayout[y][x];
+                    const pos = { x: x * TILE_SIZE, y: y * TILE_SIZE };
+                    if (char === '#') {
+                        maze.push({ ...pos, width: TILE_SIZE, height: TILE_SIZE });
+                    } else if (char === 'S') {
+                        startPos = { x: pos.x + TILE_SIZE / 4, y: pos.y + TILE_SIZE / 4 };
+                    } else if (char === 'E') {
+                        endPos = { ...pos, width: TILE_SIZE, height: TILE_SIZE };
+                    } else if (char === 'T') {
+                        traps.push({ ...pos, width: TILE_SIZE, height: TILE_SIZE });
+                    }
+                }
+            }
+        }
+
+        function setupCanvas() {
+            canvas.width = MAZE_WIDTH * TILE_SIZE;
+            canvas.height = MAZE_HEIGHT * TILE_SIZE;
+        }
+
+        function resetPlayer() {
+            player = {
+                x: startPos.x,
+                y: startPos.y,
+                width: TILE_SIZE / 2,
+                height: TILE_SIZE / 2,
+                speed: 2,
+                color: '#00ffff'
+            };
+        }
+
+        function showScreen(screenName) {
+            Object.values(screens).forEach(screen => screen.classList.add('hidden'));
+            screens[screenName].classList.remove('hidden');
+        }
+
+        function startGame() {
+            resetPlayer();
+            showScreen('game');
+            timeRemaining = 30;
+            startTimer();
+            if (animationFrameId) cancelAnimationFrame(animationFrameId);
+            gameLoop();
+        }
+
+        function endGame(won) {
+            cancelAnimationFrame(animationFrameId);
+            clearInterval(timerInterval);
+
+            if (won) {
+                endMessage.textContent = "Você venceu!";
+            } else {
+                endMessage.textContent = "Tempo esgotado! Você perdeu!";
+            }
+
+            showScreen('end');
+        }
+
+        function gameLoop() {
+            update();
+            draw();
+            animationFrameId = requestAnimationFrame(gameLoop);
+        }
+
+        function update() {
+            let dx = 0;
+            let dy = 0;
+
+            if (keys['ArrowUp'] || keys['w']) dy -= player.speed;
+            if (keys['ArrowDown'] || keys['s']) dy += player.speed;
+            if (keys['ArrowLeft'] || keys['a']) dx -= player.speed;
+            if (keys['ArrowRight'] || keys['d']) dx += player.speed;
+
+            player.x += dx;
+            checkCollisions();
+
+            player.y += dy;
+            checkCollisions();
+        }
+
+        function checkCollisions() {
+            if (player.x < 0) player.x = 0;
+            if (player.y < 0) player.y = 0;
+            if (player.x + player.width > canvas.width) player.x = canvas.width - player.width;
+            if (player.y + player.height > canvas.height) player.y = canvas.height - player.height;
+
+            maze.forEach(wall => {
+                if (isColliding(player, wall)) resetPlayer();
+            });
+
+            traps.forEach(trap => {
+                if (isColliding(player, trap)) resetPlayer();
+            });
+
+            if (isColliding(player, endPos)) {
+                endGame(true);
+            }
+        }
+
+        function isColliding(rect1, rect2) {
+            return rect1.x < rect2.x + rect2.width &&
+                   rect1.x + rect1.width > rect2.x &&
+                   rect1.y < rect2.y + rect2.height &&
+                   rect1.y + rect1.height > rect2.y;
+        }
+
+        function draw() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            ctx.fillStyle = '#1a1a2e';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+            maze.forEach(wall => drawRect(wall, '#00f'));
+            traps.forEach(trap => drawRect(trap, '#ff0000'));
+            drawRect(endPos, '#ff00ff');
+            drawRect(player, player.color);
+        }
+
+        function drawRect(obj, color) {
+            ctx.fillStyle = color;
+            ctx.fillRect(obj.x, obj.y, obj.width, obj.height);
+        }
+
+        function startTimer() {
+            timerInterval = setInterval(() => {
+                timeRemaining -= 0.01;
+                timerDisplay.textContent = timeRemaining.toFixed(2);
+
+                if (timeRemaining <= 0) {
+                    endGame(false);
+                }
+            }, 10);
+        }
+
+        window.addEventListener('keydown', (e) => keys[e.key] = true);
+        window.addEventListener('keyup', (e) => keys[e.key] = false);
+
+        startButton.addEventListener('click', startGame);
+        playAgainButton.addEventListener('click', () => showScreen('start'));
+
+        window.onload = () => {
+            initGameElements();
+            setupCanvas();
+            showScreen('start');
+        };
+    </script>
+</body>
+</html>
+
